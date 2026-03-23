@@ -1,4 +1,5 @@
-motor/target/
-motor/temp/
+scanner/target/
+scanner/temp/
+motor/
 *.deb
 .claude/
