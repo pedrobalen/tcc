@@ -1,0 +1,4 @@
+motor/target/
+motor/temp/
+*.deb
+.claude/

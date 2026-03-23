@@ -1,0 +1,18 @@
+[package]
+name = "lpts"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+thiserror = "2"
+ar = "0.9"
+tar = "0.4"
+flate2 = "1"
+xz2 = "0.1"
+yara-x = "0.13"
+goblin = "0.9"
+ort = { version = "2.0.0-rc.12", features = ["load-dynamic"] }
+csv = "1"
+tempfile = "3"
