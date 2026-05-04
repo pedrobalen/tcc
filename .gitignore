@@ -3,3 +3,9 @@ scanner/temp/
 motor/
 *.deb
 .claude/
+lab/.env
+scanner/testes/
+scanner/ort_libs/
+scanner/.cargo/
+lab/sandbox/
+lab/dataset/

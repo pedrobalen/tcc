@@ -13,6 +13,7 @@ flate2 = "1"
 xz2 = "0.1"
 yara-x = "0.13"
 goblin = "0.9"
-ort = { version = "2.0.0-rc.12", features = ["load-dynamic"] }
+ort = { version = "2.0.0-rc.12", default-features = false, features = ["api-21", "load-dynamic"] }
 csv = "1"
+serde = { version = "1", features = ["derive"] }
 tempfile = "3"

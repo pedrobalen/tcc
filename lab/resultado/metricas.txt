@@ -1,0 +1,22 @@
+Acuracia:  1.0000
+Precisao:  1.0000
+Recall:    1.0000
+F1-Score:  1.0000
+
+--- Relatorio de Classificacao ---
+
+              precision    recall  f1-score   support
+
+     benigno       1.00      1.00      1.00        38
+   malicioso       1.00      1.00      1.00        20
+
+    accuracy                           1.00        58
+   macro avg       1.00      1.00      1.00        58
+weighted avg       1.00      1.00      1.00        58
+
+--- Importancia das Features ---
+
+  num_secoes: 0.4709
+  num_importacoes: 0.4185
+  entropia: 0.0960
+  tamanho: 0.0147
