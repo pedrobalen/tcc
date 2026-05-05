@@ -4,6 +4,7 @@ mod extrator;
 mod features;
 mod inferencia;
 
+use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -116,8 +117,9 @@ fn imprimir_resultado(alvo: &Path, relatorio: &RelatorioAnalise) {
             );
             for d in deteccoes {
                 println!(
-                    "    regra: {} | severidade: {} | arquivo: {}",
+                    "    regra: {} | {} | severidade: {} | arquivo: {}",
                     d.regra,
+                    d.descricao,
                     d.severidade,
                     formatar_caminho_pacote(&d.arquivo)
                 );
@@ -326,6 +328,225 @@ fn para_registro_csv(alvo: &Path, relatorio: &RelatorioAnalise, tempo_ms: u128) 
     }
 }
 
+// Gera um relatorio detalhado em texto sobre a analise de um pacote .deb.
+// O arquivo e salvo como report_<nome_do_pacote>.txt no diretorio de trabalho.
+fn gerar_relatorio_txt(alvo: &Path, relatorio: &RelatorioAnalise) -> anyhow::Result<PathBuf> {
+    let nome_pacote = alvo
+        .file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "desconhecido".to_string());
+    let caminho_saida = PathBuf::from(format!("report_{nome_pacote}.txt"));
+
+    let mut txt = String::new();
+    let sep = "=".repeat(60);
+
+    writeln!(txt, "{sep}")?;
+    writeln!(txt, "  LPTS - Relatorio de Analise de Pacote")?;
+    writeln!(txt, "{sep}")?;
+    writeln!(txt)?;
+
+    // Dados do pacote
+    writeln!(txt, "Pacote: {}", alvo.display())?;
+    let esp = &relatorio.especificacoes;
+    writeln!(txt, "Tamanho do .deb: {}", formatar_bytes(esp.tamanho_pacote))?;
+    writeln!(txt, "Membro de dados: {} ({})", esp.membro_data, esp.compressao_data)?;
+    writeln!(
+        txt,
+        "Conteudo extraido: {} arquivo(s), {}",
+        esp.arquivos_extraidos,
+        formatar_bytes(esp.bytes_extraidos)
+    )?;
+
+    if !esp.campos_controle.is_empty() {
+        writeln!(txt)?;
+        writeln!(txt, "--- Controle Debian ---")?;
+        for (chave, valor) in &esp.campos_controle {
+            writeln!(txt, "  {chave}: {valor}")?;
+        }
+    }
+
+    writeln!(txt)?;
+    writeln!(txt, "{}", "-".repeat(60))?;
+    writeln!(txt, "  Resultado da Analise")?;
+    writeln!(txt, "{}", "-".repeat(60))?;
+    writeln!(txt)?;
+
+    match &relatorio.resultado {
+        ResultadoPipeline::AlertaVermelho { deteccoes } => {
+            writeln!(
+                txt,
+                "Veredito: ALERTA VERMELHO — {} ameaca(s) detectada(s) por assinatura",
+                deteccoes.len()
+            )?;
+            writeln!(txt)?;
+            writeln!(txt, "--- Detalhes das Ameacas ---")?;
+            for (i, d) in deteccoes.iter().enumerate() {
+                writeln!(txt)?;
+                writeln!(txt, "  Ameaca #{}", i + 1)?;
+                writeln!(txt, "    Regra:       {}", d.regra)?;
+                writeln!(txt, "    Descricao:   {}", d.descricao)?;
+                writeln!(txt, "    Severidade:  {}", d.severidade)?;
+                writeln!(txt, "    Arquivo:     {}", formatar_caminho_pacote(&d.arquivo))?;
+            }
+        }
+        ResultadoPipeline::AlertaLaranja { ameacas } => {
+            writeln!(
+                txt,
+                "Veredito: ALERTA LARANJA — {} binario(s) suspeito(s) por heuristica ML",
+                ameacas.len()
+            )?;
+            writeln!(txt)?;
+            writeln!(txt, "Nenhuma assinatura YARA correspondeu.")?;
+            writeln!(txt, "O modelo de Machine Learning classificou binarios como potencialmente maliciosos.")?;
+            writeln!(txt)?;
+            writeln!(txt, "--- Binarios Suspeitos ---")?;
+            for (i, r) in ameacas.iter().enumerate() {
+                writeln!(txt)?;
+                writeln!(txt, "  Suspeito #{}", i + 1)?;
+                writeln!(txt, "    Arquivo:    {}", formatar_caminho_pacote(&r.arquivo))?;
+                writeln!(txt, "    Confianca:  {:.1}%", r.confianca * 100.0)?;
+
+                if let Some(feat) = relatorio.features.iter().find(|f| f.arquivo == r.arquivo) {
+                    writeln!(txt, "    Tamanho:    {}", formatar_bytes(feat.tamanho))?;
+                    writeln!(txt, "    Entropia:   {:.3}", feat.entropia)?;
+                    writeln!(txt, "    Secoes ELF: {}", feat.num_secoes)?;
+                    writeln!(txt, "    Importacoes: {}", feat.num_importacoes)?;
+                }
+            }
+        }
+        ResultadoPipeline::SinalVerde { tem_elf } => {
+            writeln!(txt, "Veredito: SINAL VERDE — pacote aparentemente limpo")?;
+            if !tem_elf {
+                writeln!(txt)?;
+                writeln!(txt, "Observacao: pacote sem binarios ELF analisaveis; estagio ML nao executado.")?;
+            }
+        }
+    }
+
+    // Features de todos os ELFs analisados (quando houver)
+    if !relatorio.features.is_empty() {
+        writeln!(txt)?;
+        writeln!(txt, "{}", "-".repeat(60))?;
+        writeln!(txt, "  Binarios ELF Analisados")?;
+        writeln!(txt, "{}", "-".repeat(60))?;
+
+        for feat in &relatorio.features {
+            let inferencia = relatorio.inferencias.iter().find(|r| r.arquivo == feat.arquivo);
+            let classificacao = inferencia
+                .map(|r| if r.predicao == 1 { "malicioso" } else { "benigno" })
+                .unwrap_or("nao classificado");
+            let confianca = inferencia
+                .map(|r| format!("{:.1}%", r.confianca * 100.0))
+                .unwrap_or_else(|| "-".to_string());
+
+            writeln!(txt)?;
+            writeln!(txt, "  Arquivo: {}", formatar_caminho_pacote(&feat.arquivo))?;
+            writeln!(txt, "    Tamanho:         {}", formatar_bytes(feat.tamanho))?;
+            writeln!(txt, "    Entropia:        {:.3}", feat.entropia)?;
+            writeln!(txt, "    Secoes ELF:      {}", feat.num_secoes)?;
+            writeln!(txt, "    Importacoes:     {}", feat.num_importacoes)?;
+            writeln!(txt, "    Classificacao:   {classificacao} ({confianca})")?;
+        }
+    }
+
+    writeln!(txt)?;
+    writeln!(txt, "{sep}")?;
+    writeln!(txt, "  Fim do Relatorio")?;
+    writeln!(txt, "{sep}")?;
+
+    fs::write(&caminho_saida, &txt)?;
+    Ok(caminho_saida)
+}
+
+// Exporta as features dos binários classificados como suspeitos pelo ML para
+// um CSV de novas evidências ("Tratador de novas evidências" no diagrama de
+// componentes). Esse CSV serve como insumo para o pesquisador validar
+// manualmente se a amostra é de fato maliciosa e, caso confirmado, incorporá-la
+// ao dataset de treino para retreinar o modelo com `treinar.py`.
+//
+// O formato das colunas segue a mesma estrutura do dataset de treino
+// (tamanho, entropia, num_secoes, num_importacoes) para que o pesquisador
+// possa copiar as linhas validadas diretamente para dataset/maliciosos.csv
+// ou dataset/benignos.csv. A coluna `rotulo` fica vazia propositalmente:
+// ela DEVE ser preenchida pelo pesquisador após análise manual (1 = malicioso,
+// 0 = falso positivo do ML). Preencher automaticamente com 1 seria incorreto
+// porque o ML pode errar, e alimentar o dataset com predições erradas causaria
+// degradação do modelo nos retreinos seguintes.
+//
+// As colunas extras `arquivo` e `confianca_ml` não existem no dataset de treino
+// — elas servem apenas para o pesquisador identificar a origem da amostra e a
+// certeza do modelo. Devem ser removidas antes de anexar ao dataset.
+//
+// O arquivo usa modo append: múltiplas execuções do scan acumulam evidências
+// no mesmo CSV sem sobrescrever as anteriores.
+fn exportar_evidencias(relatorio: &RelatorioAnalise) -> anyhow::Result<PathBuf> {
+    let caminho = PathBuf::from("novas_evidencias.csv");
+
+    // Verifica se o arquivo já existe para decidir se escreve o cabeçalho.
+    // Em modo append, o cabeçalho só deve aparecer na primeira linha do arquivo;
+    // escritas subsequentes adicionam apenas linhas de dados.
+    let arquivo_existe = caminho.exists();
+    let arquivo = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&caminho)?;
+    let mut escritor = csv::WriterBuilder::new()
+        .has_headers(!arquivo_existe)
+        .from_writer(arquivo);
+
+    // Filtra apenas os binários que o ML classificou como maliciosos (predicao == 1).
+    // Binários classificados como benignos pelo ML não são evidências úteis,
+    // já que o objetivo é capturar ameaças novas para enriquecer o dataset.
+    for inferencia in &relatorio.inferencias {
+        if inferencia.predicao != 1 {
+            continue;
+        }
+
+        // Busca as features correspondentes ao binário. O match é feito pelo
+        // caminho do arquivo, que é a chave compartilhada entre FeaturesElf e
+        // ResultadoInferencia desde a extração no pipeline.
+        if let Some(feat) = relatorio
+            .features
+            .iter()
+            .find(|f| f.arquivo == inferencia.arquivo)
+        {
+            escritor.serialize(RegistroEvidencia {
+                arquivo: formatar_caminho_pacote(&feat.arquivo),
+                tamanho: feat.tamanho as f64,
+                entropia: feat.entropia,
+                num_secoes: feat.num_secoes,
+                num_importacoes: feat.num_importacoes,
+                confianca_ml: format!("{:.2}", inferencia.confianca * 100.0),
+                rotulo: String::new(),
+            })?;
+        }
+    }
+
+    escritor.flush()?;
+    Ok(caminho)
+}
+
+// Registro de evidência para o CSV de novas amostras.
+// As quatro features centrais (tamanho, entropia, num_secoes, num_importacoes)
+// seguem a mesma ordem e tipo do vetor usado em features.rs e no extrator_features.py
+// do laboratório, garantindo compatibilidade direta com o pipeline de treino.
+#[derive(Serialize)]
+struct RegistroEvidencia {
+    arquivo: String,
+    tamanho: f64,
+    entropia: f64,
+    num_secoes: usize,
+    num_importacoes: usize,
+    // Confiança que o ML atribuiu à classificação como malicioso (0-100%).
+    // Serve para o pesquisador priorizar a validação: amostras com confiança
+    // próxima de 50% merecem mais atenção pois estão na fronteira de decisão.
+    confianca_ml: String,
+    // Campo vazio que o pesquisador preenche manualmente: 1 se confirmar que
+    // é malicioso, 0 se for falso positivo. Sem esse preenchimento humano,
+    // a amostra NÃO deve entrar no dataset de treino.
+    rotulo: String,
+}
+
 // Analisa um único pacote e imprime o resultado no terminal (RF01–RF04, RNF04).
 fn cmd_scan(args: &cli::ArgsScan) -> anyhow::Result<()> {
     println!("[*] Compilando regras YARA de: {}", args.regras.display());
@@ -337,6 +558,24 @@ fn cmd_scan(args: &cli::ArgsScan) -> anyhow::Result<()> {
     println!("[*] Analisando: {}", args.alvo.display());
     let resultado = executar_pipeline(&args.alvo, &regras, &mut sessao)?;
     imprimir_resultado(&args.alvo, &resultado);
+
+    let caminho_relatorio = gerar_relatorio_txt(&args.alvo, &resultado)?;
+    println!();
+    println!("[+] Relatorio salvo em: {}", caminho_relatorio.display());
+
+    // Quando o ML detecta ameaças (ALERTA LARANJA), exporta as features dos
+    // binários suspeitos para o CSV de novas evidências. Isso alimenta o
+    // componente "Tratador de novas evidências" do fluxo Scikit-learn, onde
+    // o pesquisador valida manualmente e pode retreinar o modelo.
+    // Não exporta em ALERTA VERMELHO porque o YARA já identificou a ameaça
+    // por assinatura conhecida — não há novidade para o modelo aprender.
+    if matches!(resultado.resultado, ResultadoPipeline::AlertaLaranja { .. }) {
+        let caminho_evidencias = exportar_evidencias(&resultado)?;
+        println!(
+            "[+] Evidencias exportadas para: {}",
+            caminho_evidencias.display()
+        );
+    }
 
     Ok(())
 }

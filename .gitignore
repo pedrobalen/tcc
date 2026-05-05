@@ -9,3 +9,6 @@ scanner/ort_libs/
 scanner/.cargo/
 lab/sandbox/
 lab/dataset/
+*.md
+*.pdf
+*.png

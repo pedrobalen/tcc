@@ -16,6 +16,7 @@ pub enum AssinaturasErro {
 // Representa uma regra YARA que casou com o conteudo de um arquivo.
 pub struct Deteccao {
     pub regra: String,
+    pub descricao: String,
     pub severidade: String,
     pub arquivo: PathBuf,
 }
@@ -65,8 +66,18 @@ pub fn varrer_arquivos(
                 })
                 .unwrap_or_else(|| "desconhecida".to_string());
 
+            let descricao = regra
+                .metadata()
+                .find(|(chave, _)| *chave == "descricao")
+                .and_then(|(_, valor)| match valor {
+                    yara_x::MetaValue::String(s) => Some(s.to_string()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| "sem descricao".to_string());
+
             deteccoes.push(Deteccao {
                 regra: regra.identifier().to_string(),
+                descricao,
                 severidade,
                 arquivo: arquivo.clone(),
             });
