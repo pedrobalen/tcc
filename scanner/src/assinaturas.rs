@@ -1,19 +1,17 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use thiserror::Error;
 
+const REGRAS_YARA: &str = include_str!("../regras_yara/base.yar");
+
 #[derive(Debug, Error)]
 pub enum AssinaturasErro {
-    #[error("falha de I/O: {0}")]
-    Io(#[from] std::io::Error),
     #[error("falha ao compilar regras YARA: {0}")]
     Compilacao(String),
     #[error("falha ao escanear arquivo: {0}")]
     Varredura(#[from] yara_x::ScanError),
 }
 
-// Representa uma regra YARA que casou com o conteudo de um arquivo.
 pub struct Deteccao {
     pub regra: String,
     pub descricao: String,
@@ -21,23 +19,11 @@ pub struct Deteccao {
     pub arquivo: PathBuf,
 }
 
-// Compila todas as regras .yar encontradas no diretorio informado e
-// retorna o objeto Rules pronto para uso pelo Scanner. A compilacao e
-// feita uma unica vez e o resultado pode ser reutilizado em multiplas
-// varreduras, evitando retrabalho em modo benchmark.b
-pub fn compilar_regras(diretorio: &Path) -> Result<yara_x::Rules, AssinaturasErro> {
+pub fn compilar_regras() -> Result<yara_x::Rules, AssinaturasErro> {
     let mut compiler = yara_x::Compiler::new();
-
-    for entrada in fs::read_dir(diretorio)? {
-        let caminho = entrada?.path();
-        if caminho.extension().is_some_and(|ext| ext == "yar") {
-            let fonte = fs::read_to_string(&caminho)?;
-            compiler
-                .add_source(fonte.as_str())
-                .map_err(|e| AssinaturasErro::Compilacao(e.to_string()))?;
-        }
-    }
-
+    compiler
+        .add_source(REGRAS_YARA)
+        .map_err(|e| AssinaturasErro::Compilacao(e.to_string()))?;
     Ok(compiler.build())
 }
 

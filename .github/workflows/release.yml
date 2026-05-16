@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Instalar ONNX Runtime
+        run: |
+          curl -L -o ort.tgz https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-x64-1.17.3.tgz
+          tar xzf ort.tgz
+          echo "ORT_DYLIB_PATH=$PWD/onnxruntime-linux-x64-1.17.3/lib/libonnxruntime.so.1.17.3" >> "$GITHUB_ENV"
+
+      - name: Compilar
+        working-directory: scanner
+        run: cargo build --release
+
+      - name: Empacotar
+        run: |
+          mkdir -p release
+          cp scanner/target/release/lpts release/
+          tar czf lpts-linux-x64.tar.gz -C release lpts
+
+      - name: Criar Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: lpts-linux-x64.tar.gz

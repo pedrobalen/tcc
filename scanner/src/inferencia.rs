@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use ort::session::Session;
 use ort::value::Tensor;
@@ -6,27 +6,23 @@ use thiserror::Error;
 
 use crate::features::FeaturesElf;
 
+const MODELO_ONNX: &[u8] = include_bytes!("../modelo_ia/random_forest.onnx");
+
 #[derive(Debug, Error)]
 pub enum InferenciaErro {
     #[error("falha no runtime ONNX: {0}")]
     Ort(#[from] ort::Error),
 }
 
-// Resultado da classificação ML para um único binário ELF analisado.
 #[derive(Clone)]
 pub struct ResultadoInferencia {
     pub arquivo: PathBuf,
-    // 0 = benigno, 1 = malicioso (saída binária do Random Forest)
     pub predicao: i64,
-    // Probabilidade da classe predita, entre 0.0 e 1.0
     pub confianca: f32,
 }
 
-// Carrega o modelo ONNX do disco e cria uma sessão reutilizável.
-// A sessão pode ser passada para múltiplas chamadas de `classificar`
-// sem reinicializar o runtime, o que é eficiente em modo benchmark.
-pub fn carregar_modelo(caminho: &Path) -> Result<Session, InferenciaErro> {
-    Ok(Session::builder()?.commit_from_file(caminho)?)
+pub fn carregar_modelo() -> Result<Session, InferenciaErro> {
+    Ok(Session::builder()?.commit_from_memory(MODELO_ONNX)?)
 }
 
 // Classifica cada binário ELF injetando seu vetor de features [tamanho,

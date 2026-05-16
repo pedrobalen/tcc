@@ -328,8 +328,6 @@ fn para_registro_csv(alvo: &Path, relatorio: &RelatorioAnalise, tempo_ms: u128) 
     }
 }
 
-// Gera um relatorio detalhado em texto sobre a analise de um pacote .deb.
-// O arquivo e salvo como report_<nome_do_pacote>.txt no diretorio de trabalho.
 fn gerar_relatorio_txt(alvo: &Path, relatorio: &RelatorioAnalise) -> anyhow::Result<PathBuf> {
     let nome_pacote = alvo
         .file_stem()
@@ -547,13 +545,12 @@ struct RegistroEvidencia {
     rotulo: String,
 }
 
-// Analisa um único pacote e imprime o resultado no terminal (RF01–RF04, RNF04).
 fn cmd_scan(args: &cli::ArgsScan) -> anyhow::Result<()> {
-    println!("[*] Compilando regras YARA de: {}", args.regras.display());
-    let regras = assinaturas::compilar_regras(&args.regras)?;
+    println!("[*] Compilando regras YARA embutidas...");
+    let regras = assinaturas::compilar_regras()?;
 
-    println!("[*] Carregando modelo ONNX: {}", args.modelo.display());
-    let mut sessao = inferencia::carregar_modelo(&args.modelo)?;
+    println!("[*] Carregando modelo ONNX embutido...");
+    let mut sessao = inferencia::carregar_modelo()?;
 
     println!("[*] Analisando: {}", args.alvo.display());
     let resultado = executar_pipeline(&args.alvo, &regras, &mut sessao)?;
@@ -580,15 +577,12 @@ fn cmd_scan(args: &cli::ArgsScan) -> anyhow::Result<()> {
     Ok(())
 }
 
-// Varre em lote todos os .deb de um diretório e escreve um CSV de auditoria (RF05).
-// Regras YARA e sessão ONNX são compiladas/carregadas uma única vez antes do loop
-// para não penalizar o tempo de cada iteração com overhead de inicialização.
 fn cmd_benchmark(args: &cli::ArgsBenchmark) -> anyhow::Result<()> {
-    println!("[*] Compilando regras YARA de: {}", args.regras.display());
-    let regras = assinaturas::compilar_regras(&args.regras)?;
+    println!("[*] Compilando regras YARA embutidas...");
+    let regras = assinaturas::compilar_regras()?;
 
-    println!("[*] Carregando modelo ONNX: {}", args.modelo.display());
-    let mut sessao = inferencia::carregar_modelo(&args.modelo)?;
+    println!("[*] Carregando modelo ONNX embutido...");
+    let mut sessao = inferencia::carregar_modelo()?;
 
     let debs: Vec<_> = fs::read_dir(&args.diretorio)?
         .flatten()

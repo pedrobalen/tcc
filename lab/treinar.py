@@ -28,6 +28,7 @@ from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
@@ -44,6 +45,38 @@ from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
 
 matplotlib.use("Agg")
+
+ESTILO_ACADEMICO = {
+    "font.family": "serif",
+    "font.serif": ["DejaVu Serif"],
+    "font.size": 11,
+    "axes.titlesize": 13,
+    "axes.labelsize": 12,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "axes.facecolor": "#FFFFFF",
+    "figure.facecolor": "#FFFFFF",
+    "axes.edgecolor": "#333333",
+    "axes.linewidth": 0.8,
+    "axes.grid": True,
+    "grid.color": "#CCCCCC",
+    "grid.linestyle": ":",
+    "grid.linewidth": 0.5,
+    "figure.figsize": (6.4, 4.8),
+    "figure.dpi": 300,
+    "savefig.dpi": 300,
+    "savefig.bbox": "tight",
+    "savefig.pad_inches": 0.15,
+}
+
+NOMES_FEATURES = {
+    "tamanho": "Tamanho",
+    "entropia": "Entropia",
+    "num_secoes": "Seções",
+    "num_importacoes": "Importações",
+}
+
+PALETA_CLASSES = {"Benigno": "#5B7F95", "Malicioso": "#2C3E50"}
 
 LAB_DIR = Path(__file__).parent
 DATASET_DIR = LAB_DIR / "dataset"
@@ -89,7 +122,110 @@ def treinar_modelo(X_treino, y_treino) -> RandomForestClassifier:
     return modelo
 
 
-def avaliar_modelo(modelo, X_teste, y_teste) -> None:
+def _plotar_matriz_confusao(y_teste, y_pred) -> None:
+    cm = confusion_matrix(y_teste, y_pred)
+
+    estilo_sem_grid = {**ESTILO_ACADEMICO, "axes.grid": False}
+    with plt.rc_context(estilo_sem_grid):
+        fig, ax = plt.subplots(figsize=(5, 4))
+        sns.heatmap(
+            cm,
+            annot=True,
+            fmt="d",
+            cmap=sns.light_palette("#2C3E50", as_cmap=True),
+            xticklabels=["Benigno", "Malicioso"],
+            yticklabels=["Benigno", "Malicioso"],
+            linewidths=0.8,
+            linecolor="#FFFFFF",
+            cbar_kws={"shrink": 0.8},
+            annot_kws={"fontsize": 16, "fontweight": "bold"},
+            ax=ax,
+        )
+        ax.set_xlabel("Predito")
+        ax.set_ylabel("Real")
+        ax.set_title("Matriz de Confusão")
+
+        caminho = RESULTADO_DIR / "matriz_confusao.png"
+        fig.savefig(caminho)
+        plt.close(fig)
+        print(f"  Matriz de confusão salva em {caminho}")
+
+
+def _plotar_importancia_features(modelo) -> None:
+    importancias = modelo.feature_importances_
+    nomes = [NOMES_FEATURES[f] for f in FEATURES]
+    ordem = np.argsort(importancias)
+
+    with plt.rc_context(ESTILO_ACADEMICO):
+        fig, ax = plt.subplots(figsize=(6, 3.5))
+        barras = ax.barh(
+            np.array(nomes)[ordem],
+            importancias[ordem],
+            color="#5B7F95",
+            edgecolor="#2C3E50",
+            linewidth=0.6,
+            height=0.55,
+        )
+
+        for barra in barras:
+            largura = barra.get_width()
+            ax.text(
+                largura + 0.008,
+                barra.get_y() + barra.get_height() / 2,
+                f"{largura:.1%}",
+                va="center",
+                fontsize=10,
+            )
+
+        ax.set_xlim(0, max(importancias) * 1.18)
+        ax.set_xlabel("Importância Relativa")
+        ax.set_title("Importância das Features — Random Forest")
+        ax.grid(axis="y", visible=False)
+
+        caminho = RESULTADO_DIR / "importancia_features.png"
+        fig.savefig(caminho)
+        plt.close(fig)
+        print(f"  Importância das features salva em {caminho}")
+
+
+def _plotar_distribuicao_features(dataset: pd.DataFrame) -> None:
+    df = dataset.copy()
+    df["classe"] = df[ROTULO].map({0: "Benigno", 1: "Malicioso"})
+
+    with plt.rc_context(ESTILO_ACADEMICO):
+        fig, axes = plt.subplots(2, 2, figsize=(8, 6))
+
+        for ax, feat in zip(axes.flat, FEATURES):
+            sns.boxplot(
+                data=df,
+                x="classe",
+                y=feat,
+                hue="classe",
+                ax=ax,
+                palette=PALETA_CLASSES,
+                width=0.45,
+                linewidth=0.8,
+                flierprops={"marker": "o", "markersize": 4, "alpha": 0.6},
+                legend=False,
+            )
+            ax.set_title(NOMES_FEATURES[feat])
+            ax.set_xlabel("")
+            ax.set_ylabel("")
+
+        fig.suptitle(
+            "Distribuição das Features por Classe",
+            fontsize=13,
+            y=1.01,
+        )
+        fig.tight_layout()
+
+        caminho = RESULTADO_DIR / "distribuicao_features.png"
+        fig.savefig(caminho)
+        plt.close(fig)
+        print(f"  Distribuição das features salva em {caminho}")
+
+
+def avaliar_modelo(modelo, X_teste, y_teste, dataset: pd.DataFrame) -> None:
     RESULTADO_DIR.mkdir(exist_ok=True)
     y_pred = modelo.predict(X_teste)
 
@@ -116,26 +252,9 @@ def avaliar_modelo(modelo, X_teste, y_teste) -> None:
     print(f"\n{texto}")
     print(f"  Metricas salvas em {caminho_metricas}")
 
-    cm = confusion_matrix(y_teste, y_pred)
-    fig, ax = plt.subplots(figsize=(6, 5))
-    sns.heatmap(
-        cm,
-        annot=True,
-        fmt="d",
-        cmap="Blues",
-        xticklabels=["benigno", "malicioso"],
-        yticklabels=["benigno", "malicioso"],
-        ax=ax,
-    )
-    ax.set_xlabel("Predito")
-    ax.set_ylabel("Real")
-    ax.set_title("Matriz de Confusao — LPTS")
-    fig.tight_layout()
-
-    caminho_figura = RESULTADO_DIR / "matriz_confusao.png"
-    fig.savefig(caminho_figura, dpi=150)
-    plt.close(fig)
-    print(f"  Matriz de confusao salva em {caminho_figura}")
+    _plotar_matriz_confusao(y_teste, y_pred)
+    _plotar_importancia_features(modelo)
+    _plotar_distribuicao_features(dataset)
 
 
 def exportar_onnx(modelo: RandomForestClassifier) -> None:
@@ -180,7 +299,7 @@ def main() -> None:
     print(f"  Random Forest: {N_ESTIMATORS} arvores, profundidade max {MAX_DEPTH}")
 
     print("\n[4/4] Avaliando modelo...")
-    avaliar_modelo(modelo, X_teste, y_teste)
+    avaliar_modelo(modelo, X_teste, y_teste, dataset)
 
     print("\nExportando para ONNX...")
     exportar_onnx(modelo)
